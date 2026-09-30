@@ -20,14 +20,32 @@ pub fn Data_Argonaut_Decode_Internal_Record_recordNilImpl(
     right(empty)
 }
 
+// Take the payload of a successful result without cloning it: the callbacks
+// hand back a freshly allocated `Either`, so an unshared `Rc` yields the value
+// itself and the record insert can mutate in place.
+fn take_right(result: Rc<Purs_Data_Either::Either>) -> crate::UnknownType {
+    match Rc::try_unwrap(result) {
+        Ok(Purs_Data_Either::Either::Right(value)) => value,
+        Ok(Purs_Data_Either::Either::Left(_)) => unreachable!("record step expected a success"),
+        Err(shared) => match shared.as_ref() {
+            Purs_Data_Either::Either::Right(value) => value.clone(),
+            Purs_Data_Either::Either::Left(_) => unreachable!("record step expected a success"),
+        },
+    }
+}
+
+// The ordinary fallback re-reads the field the `step` closure already decoded
+// and rebuilds the record through the PureScript insert path. Decode the field
+// once, then decode the tail and insert the value natively: same order, same
+// errors, one lookup per field.
 pub fn Data_Argonaut_Decode_Internal_Record_recordConsImpl(
-    _reflect: purust_core::Func1<(), String>,
-    _step: purust_core::Func2<String, Rc<Purs_Foreign_Object::Object>, Rc<Purs_Data_Either::Either>>,
-    _tail: purust_core::Func2<Rc<Purs_Foreign_Object::Object>, crate::UnknownType, Rc<Purs_Data_Either::Either>>,
-    fallback: purust_core::Func2<Rc<Purs_Foreign_Object::Object>, crate::UnknownType, Rc<Purs_Data_Either::Either>>,
+    reflect: purust_core::Func1<(), String>,
+    step: purust_core::Func2<String, Rc<Purs_Foreign_Object::Object>, Rc<Purs_Data_Either::Either>>,
+    tail: purust_core::Func2<Rc<Purs_Foreign_Object::Object>, crate::UnknownType, Rc<Purs_Data_Either::Either>>,
+    _fallback: purust_core::Func2<Rc<Purs_Foreign_Object::Object>, crate::UnknownType, Rc<Purs_Data_Either::Either>>,
     _is_right: purust_core::Func1<Rc<Purs_Data_Either::Either>, bool>,
     _right_value: purust_core::Func1<Rc<Purs_Data_Either::Either>, crate::UnknownType>,
-    _right: purust_core::Func1<crate::UnknownType, Rc<Purs_Data_Either::Either>>,
+    right: purust_core::Func1<crate::UnknownType, Rc<Purs_Data_Either::Either>>,
     _left: purust_core::Func1<
         Rc<Purs_Data_Argonaut_Decode_Error::JsonDecodeError>,
         Rc<Purs_Data_Either::Either>,
@@ -38,7 +56,18 @@ pub fn Data_Argonaut_Decode_Internal_Record_recordConsImpl(
     object: Rc<Purs_Foreign_Object::Object>,
     proxy: crate::UnknownType,
 ) -> Rc<Purs_Data_Either::Either> {
-    fallback(object, proxy)
+    let field = reflect(());
+    let field_result = step(field.clone(), object.clone());
+    if matches!(field_result.as_ref(), Purs_Data_Either::Either::Left(_)) {
+        return field_result;
+    }
+    let tail_result = tail(object, proxy);
+    if matches!(tail_result.as_ref(), Purs_Data_Either::Either::Left(_)) {
+        return tail_result;
+    }
+    let value = take_right(field_result);
+    let record = take_right(tail_result);
+    right(record.__purust_set_field(&field, value))
 }
 
 pub fn Data_Argonaut_Decode_Internal_Record_typedInt(
