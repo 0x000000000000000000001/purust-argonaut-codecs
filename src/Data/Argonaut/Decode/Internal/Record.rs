@@ -284,7 +284,7 @@ pub fn Data_Argonaut_Decode_Internal_Record_schemaDecoderABI1() -> i64 {
 // behavior, errors included.
 
 struct PurustRecordField {
-    name: String,
+    name: Rc<str>,
     spec: Rc<PurustFieldSpec>,
     step: purust_core::Func2<String, Rc<Purs_Foreign_Object::Object>, Rc<Purs_Data_Either::Either>>,
     tail: Rc<PurustRecordPlan>,
@@ -420,7 +420,7 @@ fn purust_run_plan(
         match purust_native_field(&field.spec, object.get(&field.name)) {
             Some(value) => fields.push(field.name.clone(), value),
             None => {
-                let result = (field.step)(field.name.clone(), object.clone());
+                let result = (field.step)(field.name.to_string(), object.clone());
                 if matches!(result.as_ref(), Purs_Data_Either::Either::Left(_)) {
                     return result;
                 }
@@ -495,7 +495,7 @@ pub fn Data_Argonaut_Decode_Internal_Record_planCons(
     let len = tail.len + 1;
     purust_box_plan(PurustRecordPlan {
         head: Some(Rc::new(PurustRecordField {
-            name,
+            name: Rc::from(name),
             spec: purust_unbox_spec(&spec),
             step,
             tail,
@@ -572,7 +572,7 @@ pub fn Data_Argonaut_Decode_Internal_Record_nativeObject(
         None => return fallback(json),
     };
     let mut entries = Vec::new();
-    for (key, value) in shared.entries_unsorted() {
+    for (key, value) in shared.entries_unsorted_shared() {
         let result = decoder(value);
         if matches!(result.as_ref(), Purs_Data_Either::Either::Left(_)) {
             return fallback(json);
@@ -580,6 +580,6 @@ pub fn Data_Argonaut_Decode_Internal_Record_nativeObject(
         entries.push((key, purust_take_right(result)));
     }
     Rc::new(Purs_Data_Either::Either::Right(crate::Value::Class(
-        Rc::new(Rc::new(purust_core::SharedRecord::from_entries(entries))),
+        Rc::new(Rc::new(purust_core::SharedRecord::from_entries_shared(entries))),
     )))
 }
