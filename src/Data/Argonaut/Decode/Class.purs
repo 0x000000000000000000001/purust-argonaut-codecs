@@ -6,10 +6,21 @@ import Data.Argonaut.Decode.Decoders as Decoders
 import Data.Argonaut.Core (Json, toObject)
 import Data.Argonaut.Decode.Error (JsonDecodeError(..))
 import Data.Argonaut.Decode.Internal.Record
-  ( recordConsImpl
-  , recordNilImpl
-  , rightValue
-  , RecordErrorSupport
+  ( RecordErrorSupport
+  , FieldSpec
+  , RecordPlan
+  , fieldInt
+  , fieldNumber
+  , fieldString
+  , fieldBoolean
+  , fieldJson
+  , fieldCustom
+  , fieldMaybe
+  , fieldArray
+  , fieldRecord
+  , planNil
+  , planCons
+  , runRecordPlan
   , typedJson
   , typedInt
   , typedNumber
@@ -21,7 +32,6 @@ import Data.Argonaut.Decode.Internal.Record
   , typedObject
   , typedFieldId
   , typedFieldMaybe
-  , fieldStep
   )
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Either (Either(..), isRight)
@@ -38,10 +48,9 @@ import Data.Symbol (class IsSymbol, reflectSymbol)
 import Data.Tuple (Tuple)
 import Foreign.Object as FO
 import Partial.Unsafe (unsafeCrashWith)
-import Prelude (class Ord, Unit, Void, bind, ($), (<$>))
+import Prelude (class Ord, Unit, Void, ($), (<$>))
 import Prim.Row as Row
 import Prim.RowList as RL
-import Record as Record
 import Type.Proxy (Proxy(..))
 
 -- The public DecodeJson dictionaries stay unchanged. Standard instances carry
@@ -134,8 +143,37 @@ instance decodeRecord ::
       Just object -> gDecodeJson object (Proxy :: Proxy list)
       Nothing -> Left $ TypeMismatch "Object"
 
+-- The native kind of a record field. The plan runner uses it while the value
+-- has the declared shape; everything else goes through the ordinary step.
+class NativeField (value :: Type) where
+  nativeField :: FieldSpec
+
+instance nativeFieldInt :: NativeField Int where
+  nativeField = fieldInt
+else instance nativeFieldNumber :: NativeField Number where
+  nativeField = fieldNumber
+else instance nativeFieldString :: NativeField String where
+  nativeField = fieldString
+else instance nativeFieldBoolean :: NativeField Boolean where
+  nativeField = fieldBoolean
+else instance nativeFieldJson :: NativeField Json where
+  nativeField = fieldJson
+else instance nativeFieldMaybe :: NativeField a => NativeField (Maybe a) where
+  nativeField = fieldMaybe (nativeField @a)
+else instance nativeFieldArray :: NativeField a => NativeField (Array a) where
+  nativeField = fieldArray (nativeField @a)
+else instance nativeFieldRecord ::
+  ( RL.RowToList row list
+  , GDecodeJson row list
+  ) =>
+  NativeField (Record row) where
+  nativeField = fieldRecord (recordPlan @row @list)
+else instance nativeFieldOther :: NativeField value where
+  nativeField = fieldCustom
+
 class GDecodeJson (row :: Row Type) (list :: RL.RowList Type) | list -> row where
   gDecodeJson :: forall proxy. FO.Object Json -> proxy list -> Either JsonDecodeError (Record row)
+  recordPlan :: RecordPlan
 
 -- Constructed once; plans and tags read its fields when a decoder is built.
 -- Values are never inspected while documents are decoded.
@@ -160,24 +198,23 @@ recordErrorSupport =
   }
 
 instance gDecodeJsonNil :: GDecodeJson () RL.Nil where
-  gDecodeJson = recordNilImpl Left recordErrorSupport Right
+  gDecodeJson object _ = runRecordPlan planNil object
+  recordPlan = planNil
 
 instance gDecodeJsonCons ::
   ( DecodeJsonField value
+  , NativeField value
   , GDecodeJson rowTail tail
   , IsSymbol field
   , Row.Cons field value rowTail row
   , Row.Lacks field rowTail
   ) =>
   GDecodeJson row (RL.Cons field value tail) where
-  gDecodeJson = recordConsImpl reflectName (fieldStep decodeJsonField step)
-    (gDecodeJson :: FO.Object Json -> Proxy tail -> Either JsonDecodeError (Record rowTail))
-    fallback isRight rightValue Right
-    Left recordErrorSupport Nothing Just
+  gDecodeJson object _ = runRecordPlan (recordPlan @row @(RL.Cons field value tail)) object
+  recordPlan =
+    planCons (reflectSymbol _field) (nativeField @value) step (recordPlan @rowTail @tail)
     where
     _field = Proxy :: Proxy field
-
-    reflectName _ = reflectSymbol _field
 
     step
       :: String
@@ -189,22 +226,6 @@ instance gDecodeJsonCons ::
           Left err -> Left (AtKey fieldName err)
           Right _ -> fieldValue
         Nothing -> Left (AtKey fieldName MissingValue)
-
-    fallback object _ = do
-      let
-        fieldName = reflectSymbol _field
-        fieldValue = FO.lookup fieldName object
-
-      case decodeJsonField fieldValue of
-        Just fieldVal -> do
-          val <- case fieldVal of
-            Left err -> Left (AtKey fieldName err)
-            Right value -> Right value
-          rest <- gDecodeJson object (Proxy :: Proxy tail)
-          Right $ Record.insert _field val rest
-
-        Nothing ->
-          Left $ AtKey fieldName MissingValue
 
 class DecodeJsonField a where
   decodeJsonField :: Maybe Json -> Maybe (Either JsonDecodeError a)

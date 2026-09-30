@@ -3,6 +3,20 @@ module Data.Argonaut.Decode.Internal.Record
   , recordConsImpl
   , rightValue
   , RecordErrorSupport
+  , FieldSpec
+  , RecordPlan
+  , fieldInt
+  , fieldNumber
+  , fieldString
+  , fieldBoolean
+  , fieldJson
+  , fieldCustom
+  , fieldMaybe
+  , fieldArray
+  , fieldRecord
+  , planNil
+  , planCons
+  , runRecordPlan
   , typedJson
   , typedInt
   , typedNumber
@@ -214,3 +228,45 @@ foreign import getFieldOptionalNullableImpl
   -> Object Json
   -> String
   -> Either JsonDecodeError (Maybe a)
+
+-- Native construction plans: an immutable description of a record row (field
+-- names, native field kinds, and the exact generic step of each field). The
+-- plan runner uses the native kind while the shape is recognized and falls
+-- back to the step otherwise, so success and error behavior are identical.
+foreign import data FieldSpec :: Type
+
+foreign import data RecordPlan :: Type
+
+foreign import fieldInt :: FieldSpec
+
+foreign import fieldNumber :: FieldSpec
+
+foreign import fieldString :: FieldSpec
+
+foreign import fieldBoolean :: FieldSpec
+
+foreign import fieldJson :: FieldSpec
+
+foreign import fieldCustom :: FieldSpec
+
+foreign import fieldMaybe :: FieldSpec -> FieldSpec
+
+foreign import fieldArray :: FieldSpec -> FieldSpec
+
+foreign import fieldRecord :: RecordPlan -> FieldSpec
+
+foreign import planNil :: RecordPlan
+
+foreign import planCons
+  :: forall value
+   . String
+  -> FieldSpec
+  -> (String -> Object Json -> Either JsonDecodeError value)
+  -> RecordPlan
+  -> RecordPlan
+
+foreign import runRecordPlan
+  :: forall row
+   . RecordPlan
+  -> Object Json
+  -> Either JsonDecodeError (Record row)

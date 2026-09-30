@@ -230,3 +230,231 @@ pub fn Data_Argonaut_Decode_Internal_Record_borrowObject(
 pub fn Data_Argonaut_Decode_Internal_Record_schemaDecoderABI1() -> i64 {
     1
 }
+
+// ---------------------------------------------------------------------------
+// Native construction plans.
+//
+// A plan is an immutable description of one record row: for every field, the
+// field name, its native kind and the exact generic step of that field. The
+// runner decodes a field natively while the value has the declared shape and
+// otherwise calls the step, so anything unrecognized keeps the ordinary
+// behavior, errors included.
+
+struct PurustRecordField {
+    name: String,
+    spec: Rc<PurustFieldSpec>,
+    step: purust_core::Func2<String, Rc<Purs_Foreign_Object::Object>, Rc<Purs_Data_Either::Either>>,
+    tail: Rc<PurustRecordPlan>,
+}
+
+struct PurustRecordPlan {
+    head: Option<Rc<PurustRecordField>>,
+}
+
+enum PurustFieldSpec {
+    Int,
+    Number,
+    String,
+    Boolean,
+    Json,
+    Maybe(Rc<PurustFieldSpec>),
+    Array(Rc<PurustFieldSpec>),
+    Record(Rc<PurustRecordPlan>),
+    Custom,
+}
+
+fn purust_box_spec(spec: PurustFieldSpec) -> crate::UnknownType {
+    crate::Value::Class(Rc::new(Rc::new(spec)))
+}
+
+fn purust_unbox_spec(value: &crate::UnknownType) -> Rc<PurustFieldSpec> {
+    value.unwrap_class::<Rc<PurustFieldSpec>>().clone()
+}
+
+fn purust_box_plan(plan: PurustRecordPlan) -> crate::UnknownType {
+    crate::Value::Class(Rc::new(Rc::new(plan)))
+}
+
+fn purust_unbox_plan(value: &crate::UnknownType) -> Rc<PurustRecordPlan> {
+    value.unwrap_class::<Rc<PurustRecordPlan>>().clone()
+}
+
+fn purust_maybe_just(value: crate::UnknownType) -> crate::UnknownType {
+    crate::Value::Class(Rc::new(Rc::new(Purs_Data_Maybe::Maybe::Just(value))))
+}
+
+fn purust_maybe_nothing() -> crate::UnknownType {
+    crate::Value::Class(Rc::new(Rc::new(Purs_Data_Maybe::Maybe::Nothing)))
+}
+
+// Mirrors Data.Int.fromNumber: finite, integral and inside the Int range.
+fn purust_valid_int(number: f64) -> bool {
+    number.is_finite()
+        && number.fract() == 0.0
+        && number >= (-2147483648.0)
+        && number <= 2147483647.0
+}
+
+fn purust_native_field(
+    spec: &PurustFieldSpec,
+    value: Option<crate::UnknownType>,
+) -> Option<crate::UnknownType> {
+    match spec {
+        PurustFieldSpec::Custom => None,
+        PurustFieldSpec::Json => value,
+        PurustFieldSpec::Boolean => match value?.resolve() {
+            crate::Value::Bool(flag) => Some(crate::Value::Bool(*flag)),
+            _ => None,
+        },
+        PurustFieldSpec::String => match value?.resolve() {
+            crate::Value::String(text) => Some(crate::Value::String(text.clone())),
+            _ => None,
+        },
+        PurustFieldSpec::Number => match value?.resolve() {
+            crate::Value::Number(number) => Some(crate::Value::Number(*number)),
+            crate::Value::Int(number) => Some(crate::Value::Number(*number as f64)),
+            _ => None,
+        },
+        PurustFieldSpec::Int => match value?.resolve() {
+            crate::Value::Int(number) => Some(crate::Value::Int(*number)),
+            crate::Value::Number(number) if purust_valid_int(*number) => {
+                Some(crate::Value::Int(*number as i64))
+            }
+            _ => None,
+        },
+        PurustFieldSpec::Maybe(inner) => {
+            let value = value?;
+            if matches!(value.resolve(), crate::Value::Null) {
+                return Some(purust_maybe_nothing());
+            }
+            purust_native_field(inner, Some(value)).map(purust_maybe_just)
+        }
+        PurustFieldSpec::Array(inner) => {
+            let value = value?;
+            match value.resolve() {
+                crate::Value::Array(items) => {
+                    let mut decoded = Vec::with_capacity(items.len());
+                    for item in items.iter() {
+                        decoded.push(purust_native_field(inner, Some(item.clone()))?);
+                    }
+                    Some(crate::Value::Array(Rc::new(decoded)))
+                }
+                _ => None,
+            }
+        }
+        PurustFieldSpec::Record(plan) => {
+            let value = value?;
+            let object = match value.resolve() {
+                crate::Value::Class(native) => native
+                    .downcast_ref::<Rc<Purs_Foreign_Object::Object>>()
+                    .cloned(),
+                _ => None,
+            }?;
+            match purust_run_plan(plan, object).as_ref() {
+                Purs_Data_Either::Either::Right(record) => Some(record.clone()),
+                Purs_Data_Either::Either::Left(_) => None,
+            }
+        }
+    }
+}
+
+fn purust_run_plan(
+    plan: &PurustRecordPlan,
+    object: Rc<Purs_Foreign_Object::Object>,
+) -> Rc<Purs_Data_Either::Either> {
+    let mut fields = purust_core::RecordFields::new();
+    let mut node = plan.head.clone();
+    while let Some(field) = node {
+        match purust_native_field(&field.spec, object.get(&field.name)) {
+            Some(value) => {
+                fields.insert(field.name.clone(), value);
+            }
+            None => {
+                let result = (field.step)(field.name.clone(), object.clone());
+                if matches!(result.as_ref(), Purs_Data_Either::Either::Left(_)) {
+                    return result;
+                }
+                fields.insert(field.name.clone(), purust_take_right(result));
+            }
+        }
+        node = field.tail.head.clone();
+    }
+    Rc::new(Purs_Data_Either::Either::Right(
+        crate::Value::DynamicRecord(perceus_ptr::PerceusPtr::new(fields)),
+    ))
+}
+
+fn purust_take_right(result: Rc<Purs_Data_Either::Either>) -> crate::UnknownType {
+    match Rc::try_unwrap(result) {
+        Ok(Purs_Data_Either::Either::Right(value)) => value,
+        Ok(Purs_Data_Either::Either::Left(_)) => unreachable!("plan step expected a success"),
+        Err(shared) => match shared.as_ref() {
+            Purs_Data_Either::Either::Right(value) => value.clone(),
+            Purs_Data_Either::Either::Left(_) => unreachable!("plan step expected a success"),
+        },
+    }
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_fieldInt() -> crate::UnknownType {
+    purust_box_spec(PurustFieldSpec::Int)
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_fieldNumber() -> crate::UnknownType {
+    purust_box_spec(PurustFieldSpec::Number)
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_fieldString() -> crate::UnknownType {
+    purust_box_spec(PurustFieldSpec::String)
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_fieldBoolean() -> crate::UnknownType {
+    purust_box_spec(PurustFieldSpec::Boolean)
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_fieldJson() -> crate::UnknownType {
+    purust_box_spec(PurustFieldSpec::Json)
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_fieldCustom() -> crate::UnknownType {
+    purust_box_spec(PurustFieldSpec::Custom)
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_fieldMaybe(inner: crate::UnknownType) -> crate::UnknownType {
+    purust_box_spec(PurustFieldSpec::Maybe(purust_unbox_spec(&inner)))
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_fieldArray(inner: crate::UnknownType) -> crate::UnknownType {
+    purust_box_spec(PurustFieldSpec::Array(purust_unbox_spec(&inner)))
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_fieldRecord(plan: crate::UnknownType) -> crate::UnknownType {
+    purust_box_spec(PurustFieldSpec::Record(purust_unbox_plan(&plan)))
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_planNil() -> crate::UnknownType {
+    purust_box_plan(PurustRecordPlan { head: None })
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_planCons(
+    name: String,
+    spec: crate::UnknownType,
+    step: purust_core::Func2<String, Rc<Purs_Foreign_Object::Object>, Rc<Purs_Data_Either::Either>>,
+    tail: crate::UnknownType,
+) -> crate::UnknownType {
+    let tail = purust_unbox_plan(&tail);
+    purust_box_plan(PurustRecordPlan {
+        head: Some(Rc::new(PurustRecordField {
+            name,
+            spec: purust_unbox_spec(&spec),
+            step,
+            tail,
+        })),
+    })
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_runRecordPlan(
+    plan: crate::UnknownType,
+    object: Rc<Purs_Foreign_Object::Object>,
+) -> Rc<Purs_Data_Either::Either> {
+    purust_run_plan(&purust_unbox_plan(&plan), object)
+}

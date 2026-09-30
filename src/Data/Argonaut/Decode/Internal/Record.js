@@ -23,3 +23,22 @@ export const getFieldOptionalImpl = fallback => fallback;
 export const getFieldOptionalNullableImpl = fallback => fallback;
 export const borrowObject = decoder => json => decoder(json);
 export const schemaDecoderABI1 = 1;
+
+// Native construction plans are provided by the purust runtime FFI. The
+// JavaScript backend keeps the ordinary decoding path, so these markers only
+// satisfy the foreign-module contract.
+const nativePlanUnsupported = () => {
+  throw new Error("Data.Argonaut.Decode.Internal.Record: native plans require the purust runtime");
+};
+export const fieldInt = nativePlanUnsupported;
+export const fieldNumber = nativePlanUnsupported;
+export const fieldString = nativePlanUnsupported;
+export const fieldBoolean = nativePlanUnsupported;
+export const fieldJson = nativePlanUnsupported;
+export const fieldCustom = nativePlanUnsupported;
+export const fieldMaybe = nativePlanUnsupported;
+export const fieldArray = nativePlanUnsupported;
+export const fieldRecord = nativePlanUnsupported;
+export const planNil = nativePlanUnsupported;
+export const planCons = nativePlanUnsupported;
+export const runRecordPlan = nativePlanUnsupported;
