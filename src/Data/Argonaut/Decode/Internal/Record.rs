@@ -510,3 +510,76 @@ pub fn Data_Argonaut_Decode_Internal_Record_runRecordPlan(
 ) -> Rc<Purs_Data_Either::Either> {
     purust_run_plan(&purust_unbox_plan(&plan), object)
 }
+
+// ---------------------------------------------------------------------------
+// Native container decoding.
+
+pub fn Data_Argonaut_Decode_Internal_Record_nativeMaybe(
+    decoder: purust_core::Func1<crate::UnknownType, Rc<Purs_Data_Either::Either>>,
+    json: crate::UnknownType,
+) -> Rc<Purs_Data_Either::Either> {
+    // `decodeMaybe` maps the decoder result; no error wrapper is involved, so
+    // the decoder's own failure is the exact generic result.
+    if matches!(json.resolve(), crate::Value::Null) {
+        return Rc::new(Purs_Data_Either::Either::Right(purust_maybe_nothing()));
+    }
+    let result = decoder(json);
+    if matches!(result.as_ref(), Purs_Data_Either::Either::Left(_)) {
+        return result;
+    }
+    Rc::new(Purs_Data_Either::Either::Right(purust_maybe_just(
+        purust_take_right(result),
+    )))
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_nativeArray(
+    fallback: purust_core::Func1<crate::UnknownType, Rc<Purs_Data_Either::Either>>,
+    decoder: purust_core::Func1<crate::UnknownType, Rc<Purs_Data_Either::Either>>,
+    json: crate::UnknownType,
+) -> Rc<Purs_Data_Either::Either> {
+    // The generic traversal owns the Named/AtIndex wrapping, so any
+    // complication goes back through it.
+    let items = match json.resolve() {
+        crate::Value::Array(items) => items.clone(),
+        _ => return fallback(json),
+    };
+    let mut decoded = Vec::with_capacity(items.len());
+    for item in items.iter() {
+        let result = decoder(item.clone());
+        if matches!(result.as_ref(), Purs_Data_Either::Either::Left(_)) {
+            return fallback(json);
+        }
+        decoded.push(purust_take_right(result));
+    }
+    Rc::new(Purs_Data_Either::Either::Right(crate::Value::Array(
+        Rc::new(decoded),
+    )))
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_nativeObject(
+    fallback: purust_core::Func1<crate::UnknownType, Rc<Purs_Data_Either::Either>>,
+    decoder: purust_core::Func1<crate::UnknownType, Rc<Purs_Data_Either::Either>>,
+    json: crate::UnknownType,
+) -> Rc<Purs_Data_Either::Either> {
+    let shared = match json.resolve() {
+        crate::Value::Class(native) => native
+            .downcast_ref::<Rc<purust_core::SharedRecord>>()
+            .cloned(),
+        _ => None,
+    };
+    let shared = match shared {
+        Some(shared) => shared,
+        None => return fallback(json),
+    };
+    let mut entries = Vec::new();
+    for (key, value) in shared.entries_unsorted() {
+        let result = decoder(value);
+        if matches!(result.as_ref(), Purs_Data_Either::Either::Left(_)) {
+            return fallback(json);
+        }
+        entries.push((key, purust_take_right(result)));
+    }
+    Rc::new(Purs_Data_Either::Either::Right(crate::Value::Class(
+        Rc::new(Rc::new(purust_core::SharedRecord::from_entries(entries))),
+    )))
+}

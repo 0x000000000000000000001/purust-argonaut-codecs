@@ -21,15 +21,15 @@ import Data.Argonaut.Decode.Internal.Record
   , planNil
   , planCons
   , runRecordPlan
+  , nativeMaybe
+  , nativeArray
+  , nativeObject
   , typedJson
   , typedInt
   , typedNumber
   , typedString
   , typedBoolean
-  , typedMaybe
-  , typedArray
   , typedRecord
-  , typedObject
   , typedFieldId
   , typedFieldMaybe
   )
@@ -63,9 +63,7 @@ instance decodeIdentity :: DecodeJson a => DecodeJson (Identity a) where
   decodeJson = decodeIdentity decodeJson
 
 instance decodeJsonMaybe :: DecodeJson a => DecodeJson (Maybe a) where
-  decodeJson = typedMaybe recordErrorSupport
-    (decodeJson :: Json -> Either JsonDecodeError a)
-    (Decoders.decodeMaybe (decodeJson :: Json -> Either JsonDecodeError a))
+  decodeJson = nativeMaybe (decodeJson :: Json -> Either JsonDecodeError a)
 
 instance decodeJsonTuple :: (DecodeJson a, DecodeJson b) => DecodeJson (Tuple a b) where
   decodeJson = decodeTuple decodeJson decodeJson
@@ -110,15 +108,14 @@ instance decodeJsonCodePoint :: DecodeJson CodePoint where
   decodeJson = decodeCodePoint
 
 instance decodeForeignObject :: DecodeJson a => DecodeJson (FO.Object a) where
-  decodeJson = typedObject
-    (decodeJson :: Json -> Either JsonDecodeError a)
+  decodeJson = nativeObject
     (Decoders.decodeForeignObject (decodeJson :: Json -> Either JsonDecodeError a))
-    Right
+    (decodeJson :: Json -> Either JsonDecodeError a)
 
 instance decodeArray :: DecodeJson a => DecodeJson (Array a) where
-  decodeJson = typedArray recordErrorSupport
-    (decodeJson :: Json -> Either JsonDecodeError a)
+  decodeJson = nativeArray
     (Decoders.decodeArray (decodeJson :: Json -> Either JsonDecodeError a))
+    (decodeJson :: Json -> Either JsonDecodeError a)
 
 instance decodeList :: DecodeJson a => DecodeJson (List a) where
   decodeJson = decodeList decodeJson

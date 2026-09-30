@@ -17,6 +17,9 @@ module Data.Argonaut.Decode.Internal.Record
   , planNil
   , planCons
   , runRecordPlan
+  , nativeMaybe
+  , nativeArray
+  , nativeObject
   , typedJson
   , typedInt
   , typedNumber
@@ -270,3 +273,26 @@ foreign import runRecordPlan
    . RecordPlan
   -> Object Json
   -> Either JsonDecodeError (Record row)
+
+-- Native container decoding. Each decoder answers the well-formed case
+-- directly and keeps the generic composition (passed as the fallback) for
+-- everything else, so error values and error order are unchanged.
+foreign import nativeMaybe
+  :: forall a
+   . (Json -> Either JsonDecodeError a)
+  -> Json
+  -> Either JsonDecodeError (Maybe a)
+
+foreign import nativeArray
+  :: forall a
+   . (Json -> Either JsonDecodeError (Array a))
+  -> (Json -> Either JsonDecodeError a)
+  -> Json
+  -> Either JsonDecodeError (Array a)
+
+foreign import nativeObject
+  :: forall a
+   . (Json -> Either JsonDecodeError (Object a))
+  -> (Json -> Either JsonDecodeError a)
+  -> Json
+  -> Either JsonDecodeError (Object a)

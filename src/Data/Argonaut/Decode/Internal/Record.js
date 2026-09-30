@@ -42,3 +42,6 @@ export const fieldRecord = nativePlanUnsupported;
 export const planNil = nativePlanUnsupported;
 export const planCons = nativePlanUnsupported;
 export const runRecordPlan = nativePlanUnsupported;
+export const nativeMaybe = nativePlanUnsupported;
+export const nativeArray = nativePlanUnsupported;
+export const nativeObject = nativePlanUnsupported;
