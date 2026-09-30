@@ -1,0 +1,21 @@
+package:
+  name: "argonaut-codecs"
+  dependencies:
+    - argonaut-core
+    - arrays
+    - bifunctors
+    - either
+    - foldable-traversable
+    - foreign-object
+    - identity
+    - integers
+    - lists
+    - maybe
+    - nonempty
+    - ordered-collections
+    - partial
+    - prelude
+    - record
+    - strings
+    - transformers
+    - tuples
