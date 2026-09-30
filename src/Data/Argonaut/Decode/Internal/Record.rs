@@ -274,6 +274,84 @@ pub fn Data_Argonaut_Decode_Internal_Record_schemaDecoderABI1() -> i64 {
     1
 }
 
+pub fn Data_Argonaut_Decode_Internal_Record_schemaDecoderABI2() -> i64 {
+    2
+}
+
+pub fn Data_Argonaut_Decode_Internal_Record_schemaTextDecoderABI2() -> i64 {
+    2
+}
+
+pub use Purs_Data_Argonaut_Core::PurustJsonDocument as SchemaText;
+impl<'a> SchemaInput for Purs_Data_Argonaut_Core::PurustJsonCursor<'a> {
+    type Items = Purs_Data_Argonaut_Core::PurustJsonCursorItems<'a>;
+    fn is_null(&self) -> bool { self.kind() == b'n' }
+    fn scalar(self, kind: &str) -> Option<crate::UnknownType> { self.scalar(kind) }
+    fn fields<const N: usize>(self, keys: [&str; N]) -> Option<[Option<Self>; N]> { self.fields(keys) }
+    fn array(self) -> Option<Self::Items> { self.array() }
+}
+
+// A single generated worker is monomorphized over a DOM or text cursor. Its
+// success result uses the ordinary runtime representation and is fully built
+// before crossing the public Either/FFI boundary.
+pub trait SchemaInput: Clone + Sized {
+    type Items: std::iter::ExactSizeIterator<Item = Self>;
+    fn is_null(&self) -> bool;
+    fn scalar(self, kind: &str) -> Option<crate::UnknownType>;
+    fn fields<const N: usize>(self, keys: [&str; N]) -> Option<[Option<Self>; N]>;
+    fn array(self) -> Option<Self::Items>;
+}
+
+#[derive(Clone)]
+pub struct SchemaDom(pub crate::UnknownType);
+
+pub struct SchemaDomItems {
+    values: Rc<Vec<crate::UnknownType>>,
+    index: usize,
+}
+
+impl std::iter::Iterator for SchemaDomItems {
+    type Item = SchemaDom;
+    fn next(&mut self) -> Option<Self::Item> {
+        let value = self.values.get(self.index)?.clone();
+        self.index += 1;
+        Some(SchemaDom(value))
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.values.len() - self.index;
+        (len, Some(len))
+    }
+}
+impl std::iter::ExactSizeIterator for SchemaDomItems {}
+
+impl SchemaInput for SchemaDom {
+    type Items = SchemaDomItems;
+    fn is_null(&self) -> bool { matches!(self.0.resolve(), crate::Value::Null) }
+    fn scalar(self, kind: &str) -> Option<crate::UnknownType> {
+        if kind == "Json" { return Some(self.0); }
+        match (kind, self.0) {
+            ("String", value @ crate::Value::String(_)) => Some(value),
+            ("Boolean", value @ crate::Value::Bool(_)) => Some(value),
+            ("Number", value @ crate::Value::Number(_)) => Some(value),
+            ("Number", crate::Value::Int(number)) => Some(crate::Value::Number(number as f64)),
+            ("Int", crate::Value::Number(number)) if purust_valid_int(number) => Some(crate::Value::Int(number as i64)),
+            ("Int", value @ crate::Value::Int(number)) if (-2147483648..=2147483647).contains(&number) => Some(value),
+            _ => None,
+        }
+    }
+    fn fields<const N: usize>(self, keys: [&str; N]) -> Option<[Option<Self>; N]> {
+        let native = match self.0.resolve() { crate::Value::Class(native) => native, _ => return None };
+        let object = native.downcast_ref::<Rc<purust_core::SharedRecord>>()?;
+        Some(object.get_many(keys).map(|value| value.map(SchemaDom)))
+    }
+    fn array(self) -> Option<Self::Items> {
+        match self.0 {
+            crate::Value::Array(values) => Some(SchemaDomItems { values, index: 0 }),
+            _ => None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Native construction plans.
 //
@@ -323,11 +401,11 @@ fn purust_unbox_plan(value: &crate::UnknownType) -> Rc<PurustRecordPlan> {
     value.unwrap_class::<Rc<PurustRecordPlan>>().clone()
 }
 
-fn purust_maybe_just(value: crate::UnknownType) -> crate::UnknownType {
+pub fn purust_maybe_just(value: crate::UnknownType) -> crate::UnknownType {
     crate::Value::Class(Rc::new(Rc::new(Purs_Data_Maybe::Maybe::Just(value))))
 }
 
-fn purust_maybe_nothing() -> crate::UnknownType {
+pub fn purust_maybe_nothing() -> crate::UnknownType {
     crate::Value::Class(Rc::new(Rc::new(Purs_Data_Maybe::Maybe::Nothing)))
 }
 

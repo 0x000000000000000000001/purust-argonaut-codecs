@@ -31,6 +31,8 @@ module Data.Argonaut.Decode.Internal.Record
   , typedObject
   , borrowObject
   , schemaDecoderABI1
+  , schemaDecoderABI2
+  , schemaTextDecoderABI2
   , typedFieldId
   , typedFieldMaybe
   , fieldStep
@@ -179,6 +181,10 @@ foreign import borrowObject
 
 -- Versioned compiler/library handshake for emitted native schema workers.
 foreign import schemaDecoderABI1 :: Int
+
+-- Success-path workers with a by-value internal result and read-only cursors.
+foreign import schemaDecoderABI2 :: Int
+foreign import schemaTextDecoderABI2 :: Int
 
 foreign import typedFieldId
   :: forall a
