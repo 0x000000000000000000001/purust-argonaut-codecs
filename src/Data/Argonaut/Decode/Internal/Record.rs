@@ -292,7 +292,7 @@ impl<'a> SchemaInput for Purs_Data_Argonaut_Core::PurustJsonCursor<'a> {
 }
 
 // A single generated worker is monomorphized over a DOM or text cursor. Its
-// success result uses the ordinary runtime representation and is fully built
+// success result uses an owned runtime representation and is fully built
 // before crossing the public Either/FFI boundary.
 pub trait SchemaInput: Clone + Sized {
     type Items: std::iter::ExactSizeIterator<Item = Self>;
@@ -306,20 +306,16 @@ pub trait SchemaInput: Clone + Sized {
 pub struct SchemaDom(pub crate::UnknownType);
 
 pub struct SchemaDomItems {
-    values: Rc<Vec<crate::UnknownType>>,
-    index: usize,
+    values: purust_core::ArrayItems,
 }
 
 impl std::iter::Iterator for SchemaDomItems {
     type Item = SchemaDom;
     fn next(&mut self) -> Option<Self::Item> {
-        let value = self.values.get(self.index)?.clone();
-        self.index += 1;
-        Some(SchemaDom(value))
+        self.values.next().map(SchemaDom)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.values.len() - self.index;
-        (len, Some(len))
+        self.values.size_hint()
     }
 }
 impl std::iter::ExactSizeIterator for SchemaDomItems {}
@@ -345,10 +341,7 @@ impl SchemaInput for SchemaDom {
         Some(object.get_many(keys).map(|value| value.map(SchemaDom)))
     }
     fn array(self) -> Option<Self::Items> {
-        match self.0 {
-            crate::Value::Array(values) => Some(SchemaDomItems { values, index: 0 }),
-            _ => None,
-        }
+        self.0.is_array().then(|| SchemaDomItems { values: self.0.array_iter() })
     }
 }
 
@@ -459,16 +452,12 @@ fn purust_native_field(
         }
         PurustFieldSpec::Array(inner) => {
             let value = value?;
-            match value.resolve() {
-                crate::Value::Array(items) => {
-                    let mut decoded = Vec::with_capacity(items.len());
-                    for item in items.iter() {
-                        decoded.push(purust_native_field(inner, Some(item.clone()))?);
-                    }
-                    Some(crate::Value::Array(Rc::new(decoded)))
-                }
-                _ => None,
+            if !value.is_array() { return None; }
+            let mut decoded = Vec::with_capacity(value.array_len());
+            for item in value.array_iter() {
+                decoded.push(purust_native_field(inner, Some(item))?);
             }
+            Some(crate::Value::Array(Rc::new(decoded)))
         }
         PurustFieldSpec::Record(plan) => {
             let value = value?;
@@ -617,13 +606,11 @@ pub fn Data_Argonaut_Decode_Internal_Record_nativeArray(
 ) -> Rc<Purs_Data_Either::Either> {
     // The generic traversal owns the Named/AtIndex wrapping, so any
     // complication goes back through it.
-    let items = match json.resolve() {
-        crate::Value::Array(items) => items.clone(),
-        _ => return fallback(json),
-    };
+    if !json.is_array() { return fallback(json); }
+    let items = json.array_iter();
     let mut decoded = Vec::with_capacity(items.len());
-    for item in items.iter() {
-        let result = decoder(item.clone());
+    for item in items {
+        let result = decoder(item);
         if matches!(result.as_ref(), Purs_Data_Either::Either::Left(_)) {
             return fallback(json);
         }
