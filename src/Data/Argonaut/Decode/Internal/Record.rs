@@ -189,7 +189,19 @@ pub fn Data_Argonaut_Decode_Internal_Record_getFieldImpl(
     object: Rc<Purs_Foreign_Object::Object>,
     key: String,
 ) -> Rc<Purs_Data_Either::Either> {
-    fallback(decoder, object, key)
+    // A successful decode needs no AtKey wrapper; anything else keeps the
+    // exact generic accessor, missing keys included.
+    match object.get(&key) {
+        Some(json) => {
+            let result = decoder(json);
+            if matches!(result.as_ref(), Purs_Data_Either::Either::Right(_)) {
+                result
+            } else {
+                fallback(decoder, object, key)
+            }
+        }
+        None => fallback(decoder, object, key),
+    }
 }
 
 pub fn Data_Argonaut_Decode_Internal_Record_getFieldOptionalImpl(
@@ -203,7 +215,22 @@ pub fn Data_Argonaut_Decode_Internal_Record_getFieldOptionalImpl(
     object: Rc<Purs_Foreign_Object::Object>,
     key: String,
 ) -> Rc<Purs_Data_Either::Either> {
-    fallback(decoder, object, key)
+    // Missing keys are `Right Nothing`; a present value keeps the decoder's
+    // result wrapped in `Just`, and every failure keeps the generic accessor
+    // (which owns the AtKey wrapping).
+    match object.get(&key) {
+        None => Rc::new(Purs_Data_Either::Either::Right(purust_maybe_nothing())),
+        Some(json) => {
+            let result = decoder(json);
+            if matches!(result.as_ref(), Purs_Data_Either::Either::Right(_)) {
+                Rc::new(Purs_Data_Either::Either::Right(purust_maybe_just(
+                    purust_take_right(result),
+                )))
+            } else {
+                fallback(decoder, object, key)
+            }
+        }
+    }
 }
 
 pub fn Data_Argonaut_Decode_Internal_Record_getFieldOptionalNullableImpl(
@@ -217,7 +244,23 @@ pub fn Data_Argonaut_Decode_Internal_Record_getFieldOptionalNullableImpl(
     object: Rc<Purs_Foreign_Object::Object>,
     key: String,
 ) -> Rc<Purs_Data_Either::Either> {
-    fallback(decoder, object, key)
+    // This accessor treats null and missing alike as `Nothing`.
+    match object.get(&key) {
+        None => Rc::new(Purs_Data_Either::Either::Right(purust_maybe_nothing())),
+        Some(json) => {
+            if matches!(json.resolve(), crate::Value::Null) {
+                return Rc::new(Purs_Data_Either::Either::Right(purust_maybe_nothing()));
+            }
+            let result = decoder(json);
+            if matches!(result.as_ref(), Purs_Data_Either::Either::Right(_)) {
+                Rc::new(Purs_Data_Either::Either::Right(purust_maybe_just(
+                    purust_take_right(result),
+                )))
+            } else {
+                fallback(decoder, object, key)
+            }
+        }
+    }
 }
 
 pub fn Data_Argonaut_Decode_Internal_Record_borrowObject(
@@ -249,6 +292,7 @@ struct PurustRecordField {
 
 struct PurustRecordPlan {
     head: Option<Rc<PurustRecordField>>,
+    len: usize,
 }
 
 enum PurustFieldSpec {
@@ -362,19 +406,19 @@ fn purust_run_plan(
     plan: &PurustRecordPlan,
     object: Rc<Purs_Foreign_Object::Object>,
 ) -> Rc<Purs_Data_Either::Either> {
-    let mut fields = purust_core::RecordFields::new();
+    // Row labels are unique by construction, so fields append without a
+    // duplicate scan.
+    let mut fields = purust_core::RecordFields::with_capacity(plan.len);
     let mut node = plan.head.clone();
     while let Some(field) = node {
         match purust_native_field(&field.spec, object.get(&field.name)) {
-            Some(value) => {
-                fields.insert(field.name.clone(), value);
-            }
+            Some(value) => fields.push(field.name.clone(), value),
             None => {
                 let result = (field.step)(field.name.clone(), object.clone());
                 if matches!(result.as_ref(), Purs_Data_Either::Either::Left(_)) {
                     return result;
                 }
-                fields.insert(field.name.clone(), purust_take_right(result));
+                fields.push(field.name.clone(), purust_take_right(result));
             }
         }
         node = field.tail.head.clone();
@@ -432,7 +476,7 @@ pub fn Data_Argonaut_Decode_Internal_Record_fieldRecord(plan: crate::UnknownType
 }
 
 pub fn Data_Argonaut_Decode_Internal_Record_planNil() -> crate::UnknownType {
-    purust_box_plan(PurustRecordPlan { head: None })
+    purust_box_plan(PurustRecordPlan { head: None, len: 0 })
 }
 
 pub fn Data_Argonaut_Decode_Internal_Record_planCons(
@@ -442,6 +486,7 @@ pub fn Data_Argonaut_Decode_Internal_Record_planCons(
     tail: crate::UnknownType,
 ) -> crate::UnknownType {
     let tail = purust_unbox_plan(&tail);
+    let len = tail.len + 1;
     purust_box_plan(PurustRecordPlan {
         head: Some(Rc::new(PurustRecordField {
             name,
@@ -449,6 +494,7 @@ pub fn Data_Argonaut_Decode_Internal_Record_planCons(
             step,
             tail,
         })),
+        len,
     })
 }
 
