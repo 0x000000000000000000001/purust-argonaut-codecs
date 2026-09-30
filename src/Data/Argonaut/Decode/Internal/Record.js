@@ -25,6 +25,8 @@ export const borrowObject = decoder => json => decoder(json);
 export const schemaDecoderABI1 = 1;
 export const schemaDecoderABI2 = 2;
 export const schemaTextDecoderABI2 = 2;
+export const schemaDecoderABI3 = 3;
+export const schemaTextDecoderABI3 = 3;
 
 // Native construction plans are provided by the purust runtime FFI. The
 // JavaScript backend keeps the ordinary decoding path, so these markers only

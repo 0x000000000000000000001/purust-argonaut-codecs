@@ -282,10 +282,15 @@ pub fn Data_Argonaut_Decode_Internal_Record_schemaTextDecoderABI2() -> i64 {
     2
 }
 
+pub fn Data_Argonaut_Decode_Internal_Record_schemaDecoderABI3() -> i64 { 3 }
+pub fn Data_Argonaut_Decode_Internal_Record_schemaTextDecoderABI3() -> i64 { 3 }
+
 pub use Purs_Data_Argonaut_Core::PurustJsonDocument as SchemaText;
 impl<'a> SchemaInput for Purs_Data_Argonaut_Core::PurustJsonCursor<'a> {
     type Items = Purs_Data_Argonaut_Core::PurustJsonCursorItems<'a>;
     fn is_null(&self) -> bool { self.kind() == b'n' }
+    fn is_string(&self) -> bool { self.kind() == b'"' }
+    fn string_eq(&self, value: &str) -> Option<bool> { self.string_eq(value) }
     fn scalar(self, kind: &str) -> Option<crate::UnknownType> { self.scalar(kind) }
     fn fields<const N: usize>(self, keys: [&str; N]) -> Option<[Option<Self>; N]> { self.fields(keys) }
     fn array(self) -> Option<Self::Items> { self.array() }
@@ -297,6 +302,8 @@ impl<'a> SchemaInput for Purs_Data_Argonaut_Core::PurustJsonCursor<'a> {
 pub trait SchemaInput: Clone + Sized {
     type Items: std::iter::ExactSizeIterator<Item = Self>;
     fn is_null(&self) -> bool;
+    fn is_string(&self) -> bool;
+    fn string_eq(&self, value: &str) -> Option<bool>;
     fn scalar(self, kind: &str) -> Option<crate::UnknownType>;
     fn fields<const N: usize>(self, keys: [&str; N]) -> Option<[Option<Self>; N]>;
     fn array(self) -> Option<Self::Items>;
@@ -323,6 +330,10 @@ impl std::iter::ExactSizeIterator for SchemaDomItems {}
 impl SchemaInput for SchemaDom {
     type Items = SchemaDomItems;
     fn is_null(&self) -> bool { matches!(self.0.resolve(), crate::Value::Null) }
+    fn is_string(&self) -> bool { matches!(self.0.resolve(), crate::Value::String(_)) }
+    fn string_eq(&self, value: &str) -> Option<bool> {
+        match self.0.resolve() { crate::Value::String(text) => Some(text == value), _ => None }
+    }
     fn scalar(self, kind: &str) -> Option<crate::UnknownType> {
         if kind == "Json" { return Some(self.0); }
         match (kind, self.0) {

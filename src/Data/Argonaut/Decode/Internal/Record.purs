@@ -33,6 +33,8 @@ module Data.Argonaut.Decode.Internal.Record
   , schemaDecoderABI1
   , schemaDecoderABI2
   , schemaTextDecoderABI2
+  , schemaDecoderABI3
+  , schemaTextDecoderABI3
   , typedFieldId
   , typedFieldMaybe
   , fieldStep
@@ -185,6 +187,10 @@ foreign import schemaDecoderABI1 :: Int
 -- Success-path workers with a by-value internal result and read-only cursors.
 foreign import schemaDecoderABI2 :: Int
 foreign import schemaTextDecoderABI2 :: Int
+
+-- Borrowed string predicates for proved discriminator-only reads.
+foreign import schemaDecoderABI3 :: Int
+foreign import schemaTextDecoderABI3 :: Int
 
 foreign import typedFieldId
   :: forall a
