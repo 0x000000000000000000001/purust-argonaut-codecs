@@ -350,10 +350,16 @@ fn purust_native_field(
             crate::Value::Bool(flag) => Some(crate::Value::Bool(*flag)),
             _ => None,
         },
-        PurustFieldSpec::String => match value?.resolve() {
-            crate::Value::String(text) => Some(crate::Value::String(text.clone())),
-            _ => None,
-        },
+        PurustFieldSpec::String => {
+            // The value is already owned here: move it into the record
+            // instead of copying the string a second time.
+            let value = value?;
+            if matches!(value.resolve(), crate::Value::String(_)) {
+                Some(value)
+            } else {
+                None
+            }
+        }
         PurustFieldSpec::Number => match value?.resolve() {
             crate::Value::Number(number) => Some(crate::Value::Number(*number)),
             crate::Value::Int(number) => Some(crate::Value::Number(*number as f64)),
