@@ -1,1 +1,4 @@
 .purmeta/
+.spago/
+output/
+.DS_Store
